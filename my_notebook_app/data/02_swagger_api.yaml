@@ -1,0 +1,79 @@
+openapi: 3.0.0
+info:
+  title: E-Commerce Platform API
+  description: API for managing users, authentication, and products.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local Development Server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+paths:
+  /auth/signup:
+    post:
+      summary: Register a new user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                full_name:
+                  type: string
+      responses:
+        '201':
+          description: User created successfully
+
+  /auth/login:
+    post:
+      summary: Login user and return JWT
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+
+  /products:
+    get:
+      summary: Get list of products
+      tags: [Products]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+          description: Pagination page number
+      responses:
+        '200':
+          description: List of products retrieved
