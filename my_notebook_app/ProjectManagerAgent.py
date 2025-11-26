@@ -19,15 +19,13 @@ class ProjectManagerAgent:
         self.status_content = status_content
 
     def invoke(self, inputs):
-        # 1. Unpack Inputs
+        # ... (Your existing invoke method for Drafting - Keep this as is) ...
         user_query = inputs.get("input", "")
         chat_history = inputs.get("chat_history", [])
-
-        # 2. Retrieve Context
+        
         docs = self.retriever.invoke(user_query)
         retrieved_context = "\n\n".join([f"[Source: {d.metadata.get('source', 'Unknown')}]\n{d.page_content}" for d in docs])
         
-        # 3. Dynamic Prompting (Strict Refusal Mode)
         drafting_prompt = ChatPromptTemplate.from_messages([
             ("system", """
             You are the Technical Lead. You prevent redundant work.
@@ -38,38 +36,18 @@ class ProjectManagerAgent:
 
             RETRIEVED CONTEXT:
             {context}
-
             """),
-            
             MessagesPlaceholder(variable_name="chat_history"),
-            
             ("human", """
             {query}
             
             ---
-            
             🛑 **STRICT INSTRUCTIONS:**
-            
-            1. **COMPLETED FEATURE CHECK:**
-               Look at the "PROJECT STATUS" block above. 
-               If the user asks for a feature that is marked "✅ COMPLETE" (like Authentication/Auth), you **MUST REFUSE** to draft a plan.
-               
-               **Output EXACTLY this for completed features:**
-               "🚨 **STATUS ALERT:** [Feature Name] is already marked as COMPLETE.
-               **Existing Implementation:** [Summarize what exists in the Context]"
-               
-               (Do NOT generate a "Database Schema" or "API Endpoints" section for completed features).
-
-            2. **NEW FEATURE DRAFTING:**
-               Only if the feature is NOT complete, draft the TRD using:
-               - Backend: Node.js + Express
-               - Database: PostgreSQL
-               - Frontend: React + Tailwind
+            1. **COMPLETED FEATURE CHECK:** If "✅ COMPLETE", REFUSE to draft.
+            2. **NEW FEATURE DRAFTING:** Draft using Node/React/Postgres.
             """)
         ])
-        
         chain = drafting_prompt | self.llm | StrOutputParser()
-        
         return chain.invoke({
             "status_context": self.status_content,
             "context": retrieved_context,
@@ -114,6 +92,7 @@ class ProjectManagerAgent:
 
 @st.cache_resource
 def get_rag_chain():
+    # ... (Keep existing initialization logic) ...
     try:
         llm = ChatOllama(model=LLM_MODEL, temperature=0.0, keep_alive="5m") 
         embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)

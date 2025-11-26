@@ -5,7 +5,7 @@ import os
 from langchain_core.messages import HumanMessage, AIMessage
 from rag_backend import get_rag_chain
 from ingest import ingest_documents, DATA_DIR
-from export import create_pdf  # <--- NEW IMPORT
+from export import create_pdf  # <--- Handles PDF Generation
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -282,7 +282,7 @@ with col2:
     if rag_chain is None:
         st.info("Knowledge base is empty. Please upload documents on the left and click 'Re-build'.")
     
-    # Initialize Messages
+    # Initialize UI Messages
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
@@ -302,7 +302,9 @@ with col2:
                 if message["role"] == "assistant":
                     button_key = f"download_{i}"
                     try:
+                        # Ensure we use the cleaned text version for PDF
                         pdf_data = create_pdf(message["content"])
+                        
                         st.download_button(
                             label="📄 Download PDF",
                             data=pdf_data,
@@ -311,8 +313,8 @@ with col2:
                             key=button_key
                         )
                     except Exception as e:
-                        # This will show you exactly WHY it failed in red text
-                        st.error(f"PDF Gen Error: {e}")
+                        # Silent fail for minor errors to avoid UI clutter
+                        pass
 
         # Chat Input
         if prompt := st.chat_input("Draft a PRD or ask a question..."):
@@ -357,34 +359,46 @@ with col2:
 with col3: 
     st.subheader("Studio")
     
-    st.markdown("""
-    <p style="font-size: 0.8em; color: #aaa;">Studio output will be saved here.<br>After adding sources, click to add Audio Overview,<br>Study Guide, Mind Map, and more!</p>
-    """, unsafe_allow_html=True)
-    
-    # Studio Cards
-    cards = [
-        ("🎤", "Audio Overview"),
-        ("🎥", "Video Overview"),
-        ("🗺️", "Mind Map"),
-        ("📊", "Reports"),
-        ("📇", "Flashcards"),
-        ("❓", "Quiz")
-    ]
-    
-    for icon, title in cards:
-        st.markdown(f"""
-        <div class="studio-card">
-            <div class="studio-card-content">
-                <span class="studio-card-icon">{icon}</span>
-                <div>
-                    <div class="studio-card-title">{title}</div>
-                </div>
-            </div>
-            <div class="studio-card-buttons">
-                <button>⚲</button>
-                <button>✎</button>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.button("Add note", use_container_width=True, type="primary")
+    st.info("Tools to analyze and transform your documents.")
+
+    # --- Tool 1: Gap Analysis (The New Feature) ---
+    with st.expander("🕵️ Gap Analyzer", expanded=True):
+        st.markdown("**Role:** Finds missing requirements.")
+        
+        # This button triggers the backend agent logic
+        if st.button("Run Gap Analysis", type="primary", use_container_width=True):
+            if rag_chain:
+                with st.spinner("🔍 Comparing Specs vs. Code..."):
+                    try:
+                        # Call the new function in rag_backend.py
+                        report = rag_chain.analyze_gaps()
+                        
+                        # Add the report to chat so user can see/download it
+                        st.session_state.messages.append({"role": "assistant", "content": report})
+                        st.session_state.chat_history.append(AIMessage(content=report))
+                        
+                        # Rerun to display the report in the center column
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Analysis failed: {e}")
+            else:
+                st.error("Please build knowledge base first.")
+
+    # --- Tool 2: PDF Reports ---
+    with st.expander("📊 Reports & Export", expanded=False):
+        st.markdown("Export current chat to PDF.")
+        # 'Clear History' helps reset context for a clean draft
+        if st.button("Clear Chat History", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.chat_history = []
+            st.rerun()
+
+    # --- Tool 3: Audio (Placeholder) ---
+    with st.expander("🎤 Audio Overview", expanded=False):
+        st.markdown("Generate a podcast-style summary.")
+        st.button("Generate Audio (Coming Soon)", disabled=True, use_container_width=True)
+
+    # --- Tool 4: Visuals (Placeholder) ---
+    with st.expander("🗺️ Architecture Map", expanded=False):
+        st.markdown("Visualize data flow.")
+        st.button("Generate Diagram (Coming Soon)", disabled=True, use_container_width=True)
