@@ -2,9 +2,13 @@ streamlit
 langchain
 langchain-community
 langchain-core
-langchain-ollama
 langchain-text-splitters
+langchain-google-genai
 faiss-cpu
 pypdf
-unstructured
-fpdf 
+python-dotenv
+notion-client
+# Needed for your 'Download PDF' button (I added this back)
+fpdf
+# Tiktoken is often required by LangChain for counting tokens
+tiktoken

@@ -1,140 +1,188 @@
-import streamlit as st
 import os
-from langchain_ollama import OllamaEmbeddings, ChatOllama
+import json
+import streamlit as st
+from operator import itemgetter  # <--- NEW IMPORT
+from dotenv import load_dotenv
+
+# --- LangChain Imports ---
 from langchain_community.vectorstores import FAISS
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+#from langchain_community.chat_models import ChatOllama
+#from langchain_community.chat_models import ChatOllama 
+from langchain_google_genai import ChatGoogleGenerativeAI 
+from langchain.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain.storage import LocalFileStore, EncoderBackedStore
+from langchain.retrievers import ParentDocumentRetriever
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 # --- Configuration ---
-VECTOR_STORE_DIR = "vector_store/faiss_index"
-LLM_MODEL = "llama3.1:8b" 
-EMBEDDING_MODEL = "mxbai-embed-large"
-STATUS_FILE_PATH = "data/06_project_status_matrix.md"
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(env_path)
 
-class ProjectManagerAgent:
-    def __init__(self, llm, retriever, status_content):
-        self.llm = llm
+VECTOR_STORE_DIR = "vector_store"
+DOCSTORE_DIR = "docstore_data"
+FAISS_INDEX_NAME = "faiss_index"
+EMBEDDING_MODEL = "models/text-embedding-004"
+LLM_MODEL = "llama3.2" 
+
+# --- 1. JSON Serializers ---
+def serialize_document(doc: Document) -> bytes:
+    return json.dumps({
+        "page_content": doc.page_content,
+        "metadata": doc.metadata,
+    }).encode("utf-8")
+
+def deserialize_document(data: bytes) -> Document:
+    obj = json.loads(data.decode("utf-8"))
+    return Document(
+        page_content=obj["page_content"],
+        metadata=obj["metadata"],
+    )
+
+# --- 2. The Wrapper Class ---
+class RAGApplication:
+    def __init__(self, retrieval_chain, retriever, llm):
+        self.chain = retrieval_chain
         self.retriever = retriever
-        self.status_content = status_content
+        self.llm = llm
 
-    def invoke(self, inputs):
-        # 1. Unpack Inputs
-        user_query = inputs.get("input", "")
-        chat_history = inputs.get("chat_history", [])
+    def invoke(self, input_dict):
+        return self.chain.invoke(input_dict)
 
-        # 2. Retrieve Context
-        docs = self.retriever.invoke(user_query)
-        retrieved_context = "\n\n".join([f"[Source: {d.metadata.get('source', 'Unknown')}]\n{d.page_content}" for d in docs])
-        
-        # 3. Dynamic Prompting (Strict Refusal Mode)
-        drafting_prompt = ChatPromptTemplate.from_messages([
-            ("system", """
-            You are the Technical Lead. You prevent redundant work.
-
-            === PROJECT STATUS (SOURCE OF TRUTH) ===
-            {status_context}
-            ========================================
-
-            RETRIEVED CONTEXT:
-            {context}
-
-            """),
-            
-            MessagesPlaceholder(variable_name="chat_history"),
-            
-            ("human", """
-            {query}
-            
-            ---
-            
-            🛑 **STRICT INSTRUCTIONS:**
-            
-            1. **COMPLETED FEATURE CHECK:**
-               Look at the "PROJECT STATUS" block above. 
-               If the user asks for a feature that is marked "✅ COMPLETE" (like Authentication/Auth), you **MUST REFUSE** to draft a plan.
-               
-               **Output EXACTLY this for completed features:**
-               "🚨 **STATUS ALERT:** [Feature Name] is already marked as COMPLETE.
-               **Existing Implementation:** [Summarize what exists in the Context]"
-               
-               (Do NOT generate a "Database Schema" or "API Endpoints" section for completed features).
-
-            2. **NEW FEATURE DRAFTING:**
-               Only if the feature is NOT complete, draft the TRD using:
-               - Backend: Node.js + Express
-               - Database: PostgreSQL
-               - Frontend: React + Tailwind
-            """)
-        ])
-        
-        chain = drafting_prompt | self.llm | StrOutputParser()
-        
-        return chain.invoke({
-            "status_context": self.status_content,
-            "context": retrieved_context,
-            "chat_history": chat_history,
-            "query": user_query
-        })
-
-    # --- NEW: GAP ANALYSIS FUNCTION ---
     def analyze_gaps(self):
+        def format_docs(docs):
+            return "\n\n".join(doc.page_content for doc in docs)
+            
+        docs = self.retriever.invoke("project requirements specifications vs implementation details")
+        context_text = format_docs(docs)
+        
+        gap_prompt = f"""
+        You are a QA Architect. Analyze the technical context below.
+        Task: Identify promises made in 'Overview' vs implementation in 'Technical Details'.
+        
+        Context:
+        {context_text[:12000]} 
+        
+        Output a bulleted list of "Gaps Detected":
         """
-        Scans the codebase/specs to find missing implementation details.
-        """
-        # We retrieve broad context about architecture and requirements
-        docs = self.retriever.invoke("System Architecture Requirements vs Implementation Status")
-        context_text = "\n\n".join([f"[Source: {d.metadata.get('source', 'Unknown')}]\n{d.page_content}" for d in docs])
-        
-        gap_prompt = ChatPromptTemplate.from_template("""
-        You are a QA Architect and "Gap Analysis" Agent.
-        
-        YOUR TASK: 
-        Compare the "Requirements" (Architecture/Specs) against the "Implementation Status" (Matrix/Code) in the context below.
-        
-        CONTEXT:
-        {context}
-        
-        PROJECT STATUS:
-        {status}
-        
-        OUTPUT REPORT FORMAT:
-        1. **🔴 Critical Gaps:** (Features defined in specs but marked 'PENDING' or missing in code)
-        2. **⚠️ Inconsistencies:** (e.g., Spec says 'UUID' but code implies 'Integer', or 'Auth' is done but 'User Profile' is missing)
-        3. **✅ Alignment:** (Major modules that match perfectly)
-        
-        Be specific. Cite the files where you found the info.
-        """)
-        
-        chain = gap_prompt | self.llm | StrOutputParser()
-        return chain.invoke({
-            "context": context_text,
-            "status": self.status_content
-        })
+        return self.llm.invoke(gap_prompt).content
 
 @st.cache_resource
 def get_rag_chain():
-    try:
-        llm = ChatOllama(model=LLM_MODEL, temperature=0.0, keep_alive="5m") 
-        embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
+    # 1. Safety Check
+    if not os.path.exists(VECTOR_STORE_DIR) or not os.path.exists(DOCSTORE_DIR):
+        st.error(f"❌ Knowledge Base not found. Please run ingest.py first.")
+        return None
+
+    # 2. Initialize Embeddings
+    if "GOOGLE_API_KEY" not in os.environ:
+        st.error("❌ GOOGLE_API_KEY not found.")
+        return None
         
-        if not os.path.exists(VECTOR_STORE_DIR):
-             return None
-             
-        vector_store = FAISS.load_local(
+    embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
+
+    try:
+        # 3. Load Vector Store
+        vectorstore = FAISS.load_local(
             VECTOR_STORE_DIR, 
-            embeddings,
+            embeddings, 
+            index_name=FAISS_INDEX_NAME,
             allow_dangerous_deserialization=True
         )
-        retriever = vector_store.as_retriever(search_kwargs={"k": 15}) # Increased k for deeper analysis
-
-        status_content = "Status Matrix not found."
-        if os.path.exists(STATUS_FILE_PATH):
-            with open(STATUS_FILE_PATH, "r") as f:
-                status_content = f.read()
-
-        return ProjectManagerAgent(llm, retriever, status_content)
-
+        
+        # 4. Load Doc Store
+        fs_store = LocalFileStore(DOCSTORE_DIR)
+        store = EncoderBackedStore(
+            store=fs_store,
+            key_encoder=lambda k: str(k),
+            value_serializer=serialize_document,
+            value_deserializer=deserialize_document
+        )
+        
     except Exception as e:
-        print(f"Error initializing Agent: {e}")
+        st.error(f"❌ Failed to load knowledge base: {e}")
         return None
+
+    # 5. Reconstruct Retriever
+    child_splitter = RecursiveCharacterTextSplitter(chunk_size=400)
+    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=2000)
+
+    retriever = ParentDocumentRetriever(
+        vectorstore=vectorstore,
+        docstore=store,
+        child_splitter=child_splitter,
+        parent_splitter=parent_splitter,
+    )
+
+    # 6. Initialize LLM
+    #llm = ChatOllama(model=LLM_MODEL, temperature=0.3)
+
+    # 6. Initialize LLM (Switched to Gemini)
+    if "GOOGLE_API_KEY" not in os.environ:
+        st.error("❌ GOOGLE_API_KEY not found. Please add it to your .env file.")
+        return None
+
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-pro",  # Fast and smart (or use "gemini-1.5-pro" for best reasoning)
+        temperature=0.3,
+        max_output_tokens=2048
+    )
+
+
+    # 7. Define Prompts
+    contextualize_q_system_prompt = """Given a chat history and the latest user question 
+    which might reference context in the chat history, formulate a standalone question 
+    which can be understood without the chat history. Do NOT answer the question, 
+    just reformulate it if needed and otherwise return it as is."""
+
+    contextualize_q_prompt = ChatPromptTemplate.from_messages([
+        ("system", contextualize_q_system_prompt),
+        ("placeholder", "{chat_history}"),
+        ("human", "{input}"),
+    ])
+
+    qa_system_prompt = """You are a Senior Technical Assistant. 
+    Use the following pieces of retrieved context to answer the question.
+    
+    The context is formatted in Markdown. Pay attention to Headers (#, ##) to understand the topic.
+    
+    Context:
+    {context}
+    
+    If you don't know the answer, just say that you don't know. 
+    Keep the answer technical and concise."""
+
+    qa_prompt = ChatPromptTemplate.from_messages([
+        ("system", qa_system_prompt),
+        ("placeholder", "{chat_history}"),
+        ("human", "{input}"),
+    ])
+
+    # 8. Build the Chain
+    def format_docs(docs):
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    history_aware_retriever = (
+        contextualize_q_prompt 
+        | llm 
+        | StrOutputParser() 
+        | retriever
+    )
+
+    # --- THE FIX IS HERE ---
+    # We use itemgetter to pluck specific values from the dictionary
+    rag_chain_runnable = (
+        {
+            "context": history_aware_retriever | format_docs, 
+            "input": itemgetter("input"), 
+            "chat_history": itemgetter("chat_history")
+        }
+        | qa_prompt
+        | llm
+        | StrOutputParser()
+    )
+
+    return RAGApplication(rag_chain_runnable, retriever, llm)

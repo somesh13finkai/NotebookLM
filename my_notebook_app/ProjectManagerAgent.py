@@ -6,6 +6,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
+
 # --- Configuration ---
 VECTOR_STORE_DIR = "vector_store/faiss_index"
 LLM_MODEL = "llama3.1:8b" 
@@ -105,7 +106,7 @@ def get_rag_chain():
             embeddings,
             allow_dangerous_deserialization=True
         )
-        retriever = vector_store.as_retriever(search_kwargs={"k": 15}) # Increased k for deeper analysis
+        retriever = vector_store.as_retriever(search_kwargs={"k": 15}) # Increase k for deeper analysis
 
         status_content = "Status Matrix not found."
         if os.path.exists(STATUS_FILE_PATH):

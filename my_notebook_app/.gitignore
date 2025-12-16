@@ -1,0 +1,12 @@
+# Security: Never upload secrets
+.env
+
+# Junk: Don't upload virtual environments or cache
+venv/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# IMPORTANT: Do NOT ignore 'vector_store' or 'docstore_data'.
+# We WANT to upload these so the cloud app has your database ready.
