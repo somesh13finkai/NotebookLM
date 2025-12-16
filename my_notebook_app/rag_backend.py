@@ -10,7 +10,7 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 #from langchain_community.chat_models import ChatOllama
 #from langchain_community.chat_models import ChatOllama 
 from langchain_google_genai import ChatGoogleGenerativeAI 
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain.storage import LocalFileStore, EncoderBackedStore
