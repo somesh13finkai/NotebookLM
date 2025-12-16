@@ -121,15 +121,7 @@ with col1:
             except Exception as e:
                 st.error(f"Ingestion failed: {e}")
 
-    # --- 4. File List ---
-    st.markdown("---")
-    st.caption("Local Files:")
-    if os.path.exists(DATA_DIR):
-        files = [f for f in os.listdir(DATA_DIR) if f.endswith(('.pdf', '.txt', '.md', '.json', '.py', '.yaml', '.yml'))]
-        if files:
-            for f in files: st.markdown(f"📄 `{f}`")
-        else:
-            st.caption("No local files found.")
+    
 
 # ==========================================
 # COLUMN 2: CHAT

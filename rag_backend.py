@@ -12,8 +12,15 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
 # --- STORAGE FIX: These moved in new LangChain versions ---
+
+# --- SAFE IMPORT BLOCK ---
+# Tries the new location first (Cloud), falls back to old (Local)
+try:
+    from langchain_community.storage import LocalFileStore
+except ImportError:
+    from langchain.storage import LocalFileStore
+
 from langchain.storage import EncoderBackedStore
-from langchain_community.storage import LocalFileStore
 
 from langchain.retrievers import ParentDocumentRetriever
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -27,7 +34,7 @@ VECTOR_STORE_DIR = "vector_store"
 DOCSTORE_DIR = "docstore_data"
 FAISS_INDEX_NAME = "faiss_index"
 EMBEDDING_MODEL = "models/text-embedding-004"
-LLM_MODEL = "gemini-1.5-flash" 
+LLM_MODEL = "gemini-2.5-flash" 
 
 # --- 1. JSON Serializers (MUST MATCH INGEST.PY EXACTLY) ---
 def serialize_document(doc: Document) -> bytes:
