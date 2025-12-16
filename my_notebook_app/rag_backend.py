@@ -1,19 +1,20 @@
 import os
 import json
 import streamlit as st
-from operator import itemgetter  # <--- NEW IMPORT
+from operator import itemgetter
 from dotenv import load_dotenv
 
-# --- LangChain Imports ---
+# --- LangChain Imports (Updated for Cloud/v0.3) ---
 from langchain_community.vectorstores import FAISS
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-#from langchain_community.chat_models import ChatOllama
-#from langchain_community.chat_models import ChatOllama 
-from langchain_google_genai import ChatGoogleGenerativeAI 
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
-from langchain.storage import LocalFileStore, EncoderBackedStore
+
+# --- STORAGE FIX: These moved in new LangChain versions ---
+from langchain.storage import EncoderBackedStore
+from langchain_community.storage import LocalFileStore
+
 from langchain.retrievers import ParentDocumentRetriever
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -26,9 +27,9 @@ VECTOR_STORE_DIR = "vector_store"
 DOCSTORE_DIR = "docstore_data"
 FAISS_INDEX_NAME = "faiss_index"
 EMBEDDING_MODEL = "models/text-embedding-004"
-LLM_MODEL = "llama3.2" 
+LLM_MODEL = "gemini-1.5-flash" 
 
-# --- 1. JSON Serializers ---
+# --- 1. JSON Serializers (MUST MATCH INGEST.PY EXACTLY) ---
 def serialize_document(doc: Document) -> bytes:
     return json.dumps({
         "page_content": doc.page_content,
@@ -43,6 +44,7 @@ def deserialize_document(data: bytes) -> Document:
     )
 
 # --- 2. The Wrapper Class ---
+# This fixes the "RunnableSequence object has no field" error
 class RAGApplication:
     def __init__(self, retrieval_chain, retriever, llm):
         self.chain = retrieval_chain
@@ -74,12 +76,13 @@ class RAGApplication:
 def get_rag_chain():
     # 1. Safety Check
     if not os.path.exists(VECTOR_STORE_DIR) or not os.path.exists(DOCSTORE_DIR):
-        st.error(f"❌ Knowledge Base not found. Please run ingest.py first.")
-        return None
+        # We don't return None here immediately to avoid crashing app on first load if empty
+        # But generally, ingestion should have happened.
+        pass
 
     # 2. Initialize Embeddings
     if "GOOGLE_API_KEY" not in os.environ:
-        st.error("❌ GOOGLE_API_KEY not found.")
+        st.error("❌ GOOGLE_API_KEY not found. Check your .env (or Secrets on Cloud).")
         return None
         
     embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
@@ -117,20 +120,12 @@ def get_rag_chain():
         parent_splitter=parent_splitter,
     )
 
-    # 6. Initialize LLM
-    #llm = ChatOllama(model=LLM_MODEL, temperature=0.3)
-
-    # 6. Initialize LLM (Switched to Gemini)
-    if "GOOGLE_API_KEY" not in os.environ:
-        st.error("❌ GOOGLE_API_KEY not found. Please add it to your .env file.")
-        return None
-
+    # 6. Initialize LLM (Gemini)
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-pro",  # Fast and smart (or use "gemini-1.5-pro" for best reasoning)
+        model=LLM_MODEL, 
         temperature=0.3,
         max_output_tokens=2048
     )
-
 
     # 7. Define Prompts
     contextualize_q_system_prompt = """Given a chat history and the latest user question 
@@ -172,8 +167,7 @@ def get_rag_chain():
         | retriever
     )
 
-    # --- THE FIX IS HERE ---
-    # We use itemgetter to pluck specific values from the dictionary
+    # Dictionary input wrapper using itemgetter
     rag_chain_runnable = (
         {
             "context": history_aware_retriever | format_docs, 
@@ -185,4 +179,5 @@ def get_rag_chain():
         | StrOutputParser()
     )
 
+    # 9. Return the Wrapper
     return RAGApplication(rag_chain_runnable, retriever, llm)
