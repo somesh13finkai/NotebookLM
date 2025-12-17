@@ -7,6 +7,38 @@ from rag_backend import get_rag_chain
 from ingest import ingest_documents, DATA_DIR
 from export import create_pdf 
 
+
+
+
+st.markdown(
+    """
+    <style>
+    /* Limit chat input width to center (chat) column */
+    div[data-testid="stChatInput"] {
+        position: fixed;
+        bottom: 0.75rem;
+        left: 30%;
+        right: 30%;
+        z-index: 999;
+        background-color: var(--background-color);
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+    }
+
+    /* Prevent overlap with last messages */
+    .block-container {
+        padding-bottom: 6rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+
+
+
+
 # Load environment variables
 load_dotenv()
 
